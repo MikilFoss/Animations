@@ -2,6 +2,10 @@
 
 This is a comprehensive Manim animation that visualizes the QuickHull algorithm's divide-and-conquer approach with aggressive pruning.
 
+## Video Output
+
+The rendered 1080p60 animation is available as [`quickhull_animation.mp4`](./quickhull_animation.mp4).
+
 ## Installation
 
 First, install Manim:
@@ -141,6 +145,8 @@ The animation will be saved in:
 ```
 media/videos/quickhull_animation/[quality]/QuickHullVisualization.mp4
 ```
+
+The main 1080p60 output is also available as [`quickhull_animation.mp4`](./quickhull_animation.mp4) in the repository root.
 
 Quality levels:
 - `-ql`: 480p (low quality, fast render)
