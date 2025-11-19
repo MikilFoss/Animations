@@ -64,21 +64,21 @@ class BinaryTreeVisualization(Scene):
         edges.extend([edge3, edge4, edge5, edge6])
         
         # Create properties text first (but don't show yet)
-        properties_title = Text("Binary Tree Properties", font_size=28).to_corner(UL, buff=0.3)
+        properties_title = Text("Binary Tree Properties", font_size=28, disable_ligatures=True).to_corner(UL, buff=0.3)
         
         prop1 = VGroup(
             Dot(color=GREEN, radius=0.08),
-            Text("Max 2 children per node", font_size=20)
+            Text("Max 2 children per node", font_size=20, disable_ligatures=True)
         ).arrange(RIGHT, buff=0.2).next_to(properties_title, DOWN, aligned_edge=LEFT, buff=0.2)
         
         prop2 = VGroup(
             Dot(color=GREEN, radius=0.08),
-            Text("Hierarchical structure", font_size=20)
+            Text("Hierarchical structure", font_size=20, disable_ligatures=True)
         ).arrange(RIGHT, buff=0.2).next_to(prop1, DOWN, aligned_edge=LEFT, buff=0.15)
         
         prop3 = VGroup(
             Dot(color=GREEN, radius=0.08),
-            Text("Root at top, leaves at bottom", font_size=20)
+            Text("Root at top, leaves at bottom", font_size=20, disable_ligatures=True)
         ).arrange(RIGHT, buff=0.2).next_to(prop2, DOWN, aligned_edge=LEFT, buff=0.15)
         
         # Show tree and properties simultaneously
@@ -96,9 +96,9 @@ class BinaryTreeVisualization(Scene):
         
         # Show statistics
         stats = VGroup(
-            Text(f"Height: 3", font_size=24),
-            Text(f"Nodes: 7", font_size=24),
-            Text(f"Leaves: 4", font_size=24)
+            Text(f"Height: 3", font_size=24, disable_ligatures=True),
+            Text(f"Nodes: 7", font_size=24, disable_ligatures=True),
+            Text(f"Leaves: 4", font_size=24, disable_ligatures=True)
         ).arrange(DOWN, aligned_edge=LEFT, buff=0.2).to_corner(DR, buff=0.3)
         
         self.play(Write(stats), run_time=0.3)
@@ -116,7 +116,7 @@ class BinaryTreeVisualization(Scene):
         )
         
         # Show comprehensive balanced tree comparisons
-        balanced_title = Text("Types of Tree Balance", font_size=36).to_edge(UP, buff=0.5).shift(DOWN * 0.8)
+        balanced_title = Text("Types of Tree Balance", font_size=36, disable_ligatures=True).to_edge(UP, buff=0.5).shift(DOWN * 0.8)
         self.play(Write(balanced_title), run_time=0.3)
         self.wait(0.3)
         
@@ -130,32 +130,32 @@ class BinaryTreeVisualization(Scene):
         
         # Complete - color GREEN
         complete_header = VGroup(
-            Text("Complete", font_size=16, color=GREEN),
-            Text("All levels filled except", font_size=11, color=GREEN_A),
-            Text("last, filled left to right", font_size=11, color=GREEN_A)
+            Text("Complete", font_size=16, color=GREEN, disable_ligatures=True),
+            Text("All levels filled except", font_size=11, color=GREEN_A, disable_ligatures=True),
+            Text("last, filled left to right", font_size=11, color=GREEN_A, disable_ligatures=True)
         ).arrange(DOWN, buff=0.08).move_to(x_positions[0] + title_y)
         complete_tree = self.create_complete_tree_example(x_positions[0] + tree_base_y, node_radius=node_radius, node_color=GREEN)
         
         # Full - color BLUE
         full_header = VGroup(
-            Text("Full", font_size=16, color=BLUE),
-            Text("Every node has 0 or 2", font_size=11, color=BLUE_A),
-            Text("children, never 1", font_size=11, color=BLUE_A)
+            Text("Full", font_size=16, color=BLUE, disable_ligatures=True),
+            Text("Every node has 0 or 2", font_size=11, color=BLUE_A, disable_ligatures=True),
+            Text("children, never 1", font_size=11, color=BLUE_A, disable_ligatures=True)
         ).arrange(DOWN, buff=0.08).move_to(x_positions[1] + title_y)
         full_tree = self.create_full_tree_example(x_positions[1] + tree_base_y, node_radius=node_radius, node_color=BLUE)
         
         # Height-balanced - color PURPLE
         height_header = VGroup(
-            Text("Height-Balanced", font_size=16, color=PURPLE),
-            Text("Left/right subtree heights", font_size=11, color=PURPLE_A),
-            Text("differ by at most 1 (AVL)", font_size=11, color=PURPLE_A)
+            Text("Height-Balanced", font_size=16, color=PURPLE, disable_ligatures=True),
+            Text("Left/right subtree heights", font_size=11, color=PURPLE_A, disable_ligatures=True),
+            Text("differ by at most 1 (AVL)", font_size=11, color=PURPLE_A, disable_ligatures=True)
         ).arrange(DOWN, buff=0.08).move_to(x_positions[2] + title_y)
         height_tree = self.create_height_balanced_example(x_positions[2] + tree_base_y, node_radius=node_radius, node_color=PURPLE)
         
         # Balanced - color ORANGE
         balanced_header = VGroup(
-            Text("Balanced", font_size=16, color=ORANGE),
-            Text("Height is O(log n)", font_size=11, color=GOLD_A)
+            Text("Balanced", font_size=16, color=ORANGE, disable_ligatures=True),
+            Text("Height is O(log n)", font_size=11, color=GOLD_A, disable_ligatures=True)
         ).arrange(DOWN, buff=0.08).move_to(x_positions[3] + title_y)
         balanced_tree = self.create_balanced_tree_example(x_positions[3] + tree_base_y, node_radius=node_radius, node_color=ORANGE)
         
