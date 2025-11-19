@@ -20,3 +20,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Helper scripts
+ALGORITHM_PLANNING.md
+test_all_animations.sh
