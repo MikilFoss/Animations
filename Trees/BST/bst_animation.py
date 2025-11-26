@@ -14,21 +14,21 @@ import os
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-from Trees.utils import apply_manim_config, create_circular_node, create_edge_circular_nodes, create_title
+from Trees.base_tree_visualization import BaseTreeVisualization
+from Trees.tree_builder import BinaryTreeBuilder
+from Trees.utils import create_circular_node, create_edge_circular_nodes
 
-apply_manim_config()
-
-class BSTVisualization(Scene):
+class BSTVisualization(BaseTreeVisualization):
     
     def construct(self):
         # Title - keep visible throughout
-        title = create_title("Binary Search Trees")
-        self.play(Write(title), run_time=0.2)
-        self.wait(0.3)
+        title = self.create_title_section("Binary Search Trees")
         
         # Show BST property
-        property_title = Text("BST Property: left < root < right", font_size=32).to_corner(UL)
-        self.play(Write(property_title))
+        property_section = self.create_property_section(
+            "BST Property: left < root < right",
+            []
+        )
         
         # Visual diagram showing property
         root_demo = create_circular_node(50, ORIGIN + UP * 1.5)
@@ -47,15 +47,15 @@ class BSTVisualization(Scene):
         self.play(Write(label_left), Write(label_right), run_time=0.3)
         self.wait(1)
         
-        self.play(FadeOut(property_title), FadeOut(root_demo), FadeOut(left_demo), 
-                  FadeOut(right_demo), FadeOut(edge1), FadeOut(edge2), 
-                  FadeOut(label_left), FadeOut(label_right))
+        self.fade_out_group(property_section, root_demo, left_demo, right_demo, 
+                          edge1, edge2, label_left, label_right)
         
         # Insert elements: [50, 30, 70, 20, 40, 60, 80, 10, 25]
         insert_sequence = [50, 30, 70, 20, 40, 60, 80, 10, 25]
         tree = {}  # {value: {'node': mobject, 'left': value or None, 'right': value or None, 'pos': position}}
         edges = []
         root_val = None
+        tree_builder = BinaryTreeBuilder()
         
         for val in insert_sequence:
             if root_val is None:
@@ -66,7 +66,9 @@ class BSTVisualization(Scene):
                 self.play(Create(root_node), run_time=0.3)
                 self.wait(0.2)
             else:
-                new_node, new_pos, parent_val, is_left = self.insert_bst(root_val, val, tree, 0, ORIGIN + UP * 2.5)
+                new_node, new_pos, parent_val, is_left = tree_builder.insert_binary_node(
+                    root_val, val, tree, 0, ORIGIN + UP * 2.5, root_pos=ORIGIN + UP * 2.5
+                )
                 if new_node:
                     tree[val] = {'node': new_node, 'left': None, 'right': None, 'pos': new_pos}
                     if is_left:
@@ -75,10 +77,8 @@ class BSTVisualization(Scene):
                         tree[parent_val]['right'] = val
                     # Create edge connecting parent and new node at circle boundaries
                     parent_node = tree[parent_val]['node']
-                    edge = create_edge_circular_nodes(parent_node, new_node)
+                    edge = tree_builder.create_insertion_animation(self, new_node, parent_node)
                     edges.append(edge)
-                    self.play(Create(edge), Create(new_node), run_time=0.4)
-                    self.wait(0.15)
         
         self.wait(0.5)
         
@@ -87,13 +87,8 @@ class BSTVisualization(Scene):
         self.play(Write(search_title))
         
         # Highlight search path
-        search_path = self.search_path(root_val, 25, tree)
-        for i, val in enumerate(search_path):
-            if val in tree:
-                self.play(tree[val]['node'].animate.set_color(YELLOW).scale(1.3), run_time=0.3)
-                self.wait(0.15)
-                if i < len(search_path) - 1:
-                    self.play(tree[val]['node'].animate.set_color(BLUE).scale(1/1.3), run_time=0.2)
+        search_path = tree_builder.search_path(root_val, 25, tree)
+        self.highlight_path(search_path, tree)
         
         # Keep 25 highlighted
         self.wait(0.5)
@@ -103,8 +98,7 @@ class BSTVisualization(Scene):
         self.play(FadeOut(search_title))
         
         # Show complexity
-        complexity = Text("Search Complexity: O(log n)", font_size=28).to_corner(DR)
-        self.play(Write(complexity), run_time=0.3)
+        complexity = self.create_complexity_display("Search Complexity: O(log n)")
         self.wait(1)
         
         # Visual summary
@@ -113,37 +107,3 @@ class BSTVisualization(Scene):
         
         # Visual summary complete
     
-    def insert_bst(self, current_val, new_val, tree, level, current_pos):
-        """Insert value into BST recursively"""
-        if new_val < current_val:
-            if tree[current_val]['left'] is None:
-                # Insert as left child
-                spacing = 2.0 / (2 ** level)
-                new_pos = current_pos + LEFT * spacing + DOWN * 1.2
-                new_node = create_circular_node(new_val, new_pos)
-                return new_node, new_pos, current_val, True
-            else:
-                left_pos = tree[tree[current_val]['left']]['pos']
-                return self.insert_bst(tree[current_val]['left'], new_val, tree, level + 1, left_pos)
-        elif new_val > current_val:
-            if tree[current_val]['right'] is None:
-                # Insert as right child
-                spacing = 2.0 / (2 ** level)
-                new_pos = current_pos + RIGHT * spacing + DOWN * 1.2
-                new_node = create_circular_node(new_val, new_pos)
-                return new_node, new_pos, current_val, False
-            else:
-                right_pos = tree[tree[current_val]['right']]['pos']
-                return self.insert_bst(tree[current_val]['right'], new_val, tree, level + 1, right_pos)
-        return None, None, None, None
-    
-    def search_path(self, current_val, target, tree):
-        """Get search path for target value"""
-        path = [current_val]
-        if current_val == target:
-            return path
-        if target < current_val and tree[current_val]['left']:
-            path.extend(self.search_path(tree[current_val]['left'], target, tree))
-        elif target > current_val and tree[current_val]['right']:
-            path.extend(self.search_path(tree[current_val]['right'], target, tree))
-        return path

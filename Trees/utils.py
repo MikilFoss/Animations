@@ -13,11 +13,35 @@ MANIM_CONFIG = {
     'pixel_height': 1080
 }
 
-def apply_manim_config():
-    """Apply common Manim configuration to config object"""
-    config.frame_rate = MANIM_CONFIG['frame_rate']
-    config.pixel_width = MANIM_CONFIG['pixel_width']
-    config.pixel_height = MANIM_CONFIG['pixel_height']
+# Fast preview config (for development)
+FAST_CONFIG = {
+    'frame_rate': 30,
+    'pixel_width': 1280,
+    'pixel_height': 720
+}
+
+def apply_manim_config(fast=False):
+    """
+    Apply common Manim configuration to config object.
+    
+    Args:
+        fast: If True, use fast preview settings (30fps, 720p). 
+              If False, uses high quality defaults (60fps, 1080p).
+              Note: When using manim quality flags (-ql, -qm, -qh), set fast=False
+              to let manim handle quality, or use FAST_MODE=true for fastest preview.
+    """
+    if fast:
+        # Force fast settings regardless of quality flags
+        config.frame_rate = FAST_CONFIG['frame_rate']
+        config.pixel_width = FAST_CONFIG['pixel_width']
+        config.pixel_height = FAST_CONFIG['pixel_height']
+    else:
+        # Set high quality defaults
+        # Note: These will be overridden by manim's -ql/-qm/-qh flags during rendering
+        # To use manim's quality flags effectively, they should be set before this call
+        config.frame_rate = MANIM_CONFIG['frame_rate']
+        config.pixel_width = MANIM_CONFIG['pixel_width']
+        config.pixel_height = MANIM_CONFIG['pixel_height']
 
 
 def create_circular_node(value, position, color=BLUE, radius=0.4, font_size=24, fill_opacity=0.3, stroke_width=2):
@@ -37,7 +61,7 @@ def create_circular_node(value, position, color=BLUE, radius=0.4, font_size=24, 
         VGroup containing the circle and text
     """
     circle = Circle(radius=radius, color=color, fill_opacity=fill_opacity, fill_color=color, stroke_width=stroke_width)
-    text = Text(str(value), font_size=font_size, color=WHITE)
+    text = Text(str(value), font_size=font_size, color=WHITE, disable_ligatures=True)
     node = VGroup(circle, text).move_to(position)
     return node
 
@@ -121,7 +145,7 @@ def create_title(title_text, font_size=48):
     Returns:
         Text object positioned at the top edge
     """
-    return Text(title_text, font_size=font_size).to_edge(UP)
+    return Text(title_text, font_size=font_size, disable_ligatures=True).to_edge(UP)
 
 
 def create_edge_from_positions(pos1, pos2, radius=0.4, stroke_width=3, color=WHITE):
@@ -153,4 +177,74 @@ def create_edge_from_positions(pos1, pos2, radius=0.4, stroke_width=3, color=WHI
     end_point = pos2 - direction_normalized * radius
     
     return Line(start_point, end_point, stroke_width=stroke_width, color=color)
+
+
+def calculate_binary_tree_position(parent_pos, level, is_left, base_spacing=2.0, level_spacing=1.2):
+    """
+    Calculate position for a binary tree node relative to its parent
+    
+    Args:
+        parent_pos: Parent node position (numpy array)
+        level: Level in the tree (0 = root)
+        is_left: True if left child, False if right child
+        base_spacing: Base horizontal spacing (default: 2.0)
+        level_spacing: Vertical spacing between levels (default: 1.2)
+    
+    Returns:
+        numpy array representing the new position
+    """
+    spacing = base_spacing / (2 ** level)
+    direction = LEFT if is_left else RIGHT
+    new_pos = parent_pos + direction * spacing + DOWN * level_spacing
+    return np.array(new_pos)
+
+
+def calculate_tree_level_position(idx, base_y=2.0, level_spacing=1.3, horizontal_spacing=1.8):
+    """
+    Calculate position for a node in a complete binary tree using array index
+    
+    Args:
+        idx: Array index (0-based)
+        base_y: Base Y position for root (default: 2.0)
+        level_spacing: Vertical spacing between levels (default: 1.3)
+        horizontal_spacing: Horizontal spacing between nodes (default: 1.8)
+    
+    Returns:
+        numpy array representing the position
+    """
+    level = int(np.log2(idx + 1))
+    pos_in_level = idx - (2 ** level - 1)
+    total_in_level = 2 ** level
+    x_offset = (pos_in_level - total_in_level / 2 + 0.5) * horizontal_spacing
+    y_pos = base_y - level * level_spacing
+    return np.array([x_offset, y_pos, 0])
+
+
+def animate_search_path(scene, path, nodes_dict, highlight_color=YELLOW, 
+                        default_color=BLUE, scale_factor=1.3, wait_time=0.15):
+    """
+    Animate highlighting a search path through nodes
+    
+    Args:
+        scene: Manim Scene object
+        path: List of node identifiers
+        nodes_dict: Dictionary mapping identifiers to node data
+        highlight_color: Color for highlighting (default: YELLOW)
+        default_color: Default node color (default: BLUE)
+        scale_factor: Scale factor for highlighting (default: 1.3)
+        wait_time: Wait time between highlights (default: 0.15)
+    """
+    for i, node_id in enumerate(path):
+        if node_id in nodes_dict:
+            node_data = nodes_dict[node_id]
+            if isinstance(node_data, dict) and 'node' in node_data:
+                node = node_data['node']
+            else:
+                node = node_data
+            
+            scene.play(node.animate.set_color(highlight_color).scale(scale_factor), run_time=0.3)
+            scene.wait(wait_time)
+            
+            if i < len(path) - 1:
+                scene.play(node.animate.set_color(default_color).scale(1/scale_factor), run_time=0.2)
 

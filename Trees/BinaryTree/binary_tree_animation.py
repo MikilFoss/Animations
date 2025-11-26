@@ -14,17 +14,14 @@ import os
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-from Trees.utils import apply_manim_config, create_circular_node, create_edge_circular_nodes, create_title
+from Trees.base_tree_visualization import BaseTreeVisualization
+from Trees.utils import create_circular_node, create_edge_circular_nodes
 
-apply_manim_config()
-
-class BinaryTreeVisualization(Scene):
+class BinaryTreeVisualization(BaseTreeVisualization):
     
     def construct(self):
         # Title - keep visible throughout
-        title = create_title("Binary Trees")
-        self.play(Write(title), run_time=0.2)
-        self.wait(0.3)
+        title = self.create_title_section("Binary Trees")
         
         # Build tree from sequence [1,2,3,4,5,6,7] - shorter visualization
         sequence = [1, 2, 3, 4, 5, 6, 7]
@@ -105,14 +102,10 @@ class BinaryTreeVisualization(Scene):
         self.wait(0.5)
         
         # Fade out properties and stats to make room for balanced comparisons
-        self.play(
-            FadeOut(properties_title), FadeOut(prop1), FadeOut(prop2), FadeOut(prop3),
-            FadeOut(stats),
-            FadeOut(root), FadeOut(node2), FadeOut(node3), FadeOut(node4), 
-            FadeOut(node5), FadeOut(node6), FadeOut(node7),
-            FadeOut(edge1), FadeOut(edge2), FadeOut(edge3), 
-            FadeOut(edge4), FadeOut(edge5), FadeOut(edge6),
-            run_time=0.3
+        self.fade_out_group(
+            properties_title, prop1, prop2, prop3, stats,
+            root, node2, node3, node4, node5, node6, node7,
+            edge1, edge2, edge3, edge4, edge5, edge6
         )
         
         # Show comprehensive balanced tree comparisons

@@ -14,21 +14,20 @@ import os
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-from Trees.utils import apply_manim_config, create_circular_node, create_edge_circular_nodes, create_title
+from Trees.base_tree_visualization import BaseTreeVisualization
+from Trees.utils import create_circular_node, create_edge_circular_nodes
 
-apply_manim_config()
-
-class AVLTreeVisualization(Scene):
+class AVLTreeVisualization(BaseTreeVisualization):
     
     def construct(self):
         # Title - keep visible throughout
-        title = create_title("AVL Trees")
-        self.play(Write(title), run_time=0.2)
-        self.wait(0.3)
+        title = self.create_title_section("AVL Trees")
         
         # Show AVL property
-        property_title = Text("AVL Property: Balance factor ∈ {-1, 0, 1}", font_size=32).to_corner(UL)
-        self.play(Write(property_title))
+        property_section = self.create_property_section(
+            "AVL Property: Balance factor ∈ {-1, 0, 1}",
+            []
+        )
         
         # Visual with balance factors
         root = self.create_avl_node(10, ORIGIN + UP * 1.5, bf=0)
@@ -41,8 +40,7 @@ class AVLTreeVisualization(Scene):
         self.play(Create(root), Create(left), Create(right), Create(edge1), Create(edge2), run_time=0.5)
         self.wait(1)
         
-        self.play(FadeOut(property_title), FadeOut(root), FadeOut(left), 
-                  FadeOut(right), FadeOut(edge1), FadeOut(edge2))
+        self.fade_out_group(property_section, root, left, right, edge1, edge2)
         
         # Insert elements: [10, 20, 30, 40, 50]
         insert_sequence = [10, 20, 30, 40, 50]
@@ -84,16 +82,13 @@ class AVLTreeVisualization(Scene):
         self.play(FadeOut(rotation_title))
         
         # Compare with BST
-        compare_title = Text("AVL vs BST", font_size=28).to_corner(UL)
-        self.play(Write(compare_title))
-        
-        avl_height = Text("AVL: Height O(log n)", font_size=24, color=GREEN).next_to(compare_title, DOWN, aligned_edge=LEFT)
-        bst_height = Text("BST: Height O(n) worst", font_size=24, color=RED).next_to(avl_height, DOWN, aligned_edge=LEFT)
-        
-        self.play(Write(avl_height), Write(bst_height), run_time=0.5)
+        compare_section = self.create_property_section(
+            "AVL vs BST",
+            [("AVL: Height O(log n)", GREEN), ("BST: Height O(n) worst", RED)]
+        )
         self.wait(1)
         
-        self.play(FadeOut(compare_title), FadeOut(avl_height), FadeOut(bst_height))
+        self.fade_out_group(compare_section)
         
         # Visual summary
         self.play(*[nodes[v]['node'].animate.set_color(GOLD).scale(1.1) for v in nodes], run_time=0.5)

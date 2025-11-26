@@ -14,21 +14,23 @@ import os
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-from Trees.utils import apply_manim_config, create_circular_node, create_edge_circular_nodes, create_title
+from Trees.base_tree_visualization import BaseTreeVisualization
+from Trees.utils import create_circular_node, create_edge_circular_nodes, calculate_tree_level_position
 
-apply_manim_config()
-
-class HeapVisualization(Scene):
+class HeapVisualization(BaseTreeVisualization):
     
     def construct(self):
         # Title - keep visible throughout
-        title = create_title("Heaps")
-        self.play(Write(title), run_time=0.2)
-        self.wait(0.3)
+        title = self.create_title_section("Heaps")
         
         # Show heap property - keep this longer
-        property_title = Text("Heap Property", font_size=32).to_corner(UL)
-        self.play(Write(property_title))
+        property_section = self.create_property_section(
+            "Heap Property",
+            [
+                ("Max-Heap: parent >= children", GREEN),
+                ("Complete binary tree structure", YELLOW)
+            ]
+        )
         
         # Visual diagram - single parent-child example
         parent = create_circular_node(10, ORIGIN + UP * 1.5, color=GREEN)
@@ -55,9 +57,8 @@ class HeapVisualization(Scene):
         self.play(Write(label3), run_time=0.4)
         self.wait(2.0)  # Keep this explainer longer
         
-        self.play(FadeOut(property_title), FadeOut(parent), FadeOut(left_child), 
-                  FadeOut(right_child), FadeOut(edge1), FadeOut(edge2), 
-                  FadeOut(label1), FadeOut(label2), FadeOut(label3))
+        self.fade_out_group(property_section, parent, left_child, right_child, 
+                          edge1, edge2, label1, label2, label3)
         
         # Build max-heap from [4, 10, 3, 5, 1, 8, 7]
         insert_title = Text("Insertion: Building a max-heap", font_size=28).to_corner(UL)
@@ -70,12 +71,7 @@ class HeapVisualization(Scene):
         
         def get_position(idx):
             """Calculate position for node at index idx"""
-            level = int(np.log2(idx + 1))
-            pos_in_level = idx - (2 ** level - 1)
-            total_in_level = 2 ** level
-            x_offset = (pos_in_level - total_in_level / 2 + 0.5) * 1.8
-            y_pos = 2.0 - level * 1.3
-            return np.array([x_offset, y_pos, 0])
+            return calculate_tree_level_position(idx, base_y=2.0, level_spacing=1.3, horizontal_spacing=1.8)
         
         def update_node_value(node, new_val):
             """Update the value displayed in a node"""
@@ -238,7 +234,7 @@ class HeapVisualization(Scene):
             else:
                 break
         
-        self.play(FadeOut(extract_title), FadeOut(extract_text))
+        self.fade_out_group(extract_title, extract_text)
         self.wait(0.5)
         
         # Show array representation vs tree visualization
@@ -260,7 +256,7 @@ class HeapVisualization(Scene):
         self.play(Write(array_visual), run_time=0.6)
         self.wait(1.5)
         
-        self.play(FadeOut(array_title), FadeOut(array_label), FadeOut(array_visual))
+        self.fade_out_group(array_title, array_label, array_visual)
         self.wait(0.5)
         
         # Visual summary complete

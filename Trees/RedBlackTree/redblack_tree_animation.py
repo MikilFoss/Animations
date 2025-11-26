@@ -14,21 +14,20 @@ import os
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-from Trees.utils import apply_manim_config, create_circular_node, create_edge_circular_nodes, create_title
+from Trees.base_tree_visualization import BaseTreeVisualization
+from Trees.utils import create_circular_node, create_edge_circular_nodes
 
-apply_manim_config()
-
-class RedBlackTreeVisualization(Scene):
+class RedBlackTreeVisualization(BaseTreeVisualization):
     
     def construct(self):
         # Title - keep visible throughout
-        title = create_title("Red-Black Trees")
-        self.play(Write(title), run_time=0.2)
-        self.wait(0.3)
+        title = self.create_title_section("Red-Black Trees")
         
         # Show RB properties
-        property_title = Text("Red-Black Properties", font_size=32).to_corner(UL)
-        self.play(Write(property_title))
+        property_section = self.create_property_section(
+            "Red-Black Properties",
+            [("Black height balanced", GREEN)]
+        )
         
         # Visual with colored nodes
         root = Circle(radius=0.4, color=BLACK, fill_opacity=1, fill_color=BLACK)
@@ -46,8 +45,7 @@ class RedBlackTreeVisualization(Scene):
         self.play(Create(root_node), Create(left_node), Create(edge), Write(label), run_time=0.5)
         self.wait(1)
         
-        self.play(FadeOut(property_title), FadeOut(root_node), FadeOut(left_node), 
-                  FadeOut(edge), FadeOut(label))
+        self.fade_out_group(property_section, root_node, left_node, edge, label)
         
         # Insert elements: [7, 3, 18, 10, 22, 8, 11, 26]
         insert_sequence = [7, 3, 18, 10, 22, 8, 11, 26]
@@ -90,8 +88,7 @@ class RedBlackTreeVisualization(Scene):
         self.play(FadeOut(balance_title))
         
         # Show complexity
-        complexity = Text("Worst-case height: O(log n)", font_size=28).to_corner(DR)
-        self.play(Write(complexity), run_time=0.3)
+        complexity = self.create_complexity_display("Worst-case height: O(log n)")
         self.wait(1)
         
         # Visual summary

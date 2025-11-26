@@ -8,19 +8,31 @@ For high quality: manim -pqh quickhull_animation.py QuickHullVisualization
 
 from manim import *
 import numpy as np
+import sys
+import os
+# Add root directory to path for typography import
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+from typography import DocText
 
-# Configure frame rate to 60 FPS
-config.frame_rate = 60
-# Configure resolution to 1080p (1920x1080)
-config.pixel_width = 1920
-config.pixel_height = 1080
+# Set to True for faster rendering during development (30fps, 720p)
+FAST_MODE = os.getenv('FAST_MODE', 'False').lower() == 'true'
+if FAST_MODE:
+    config.frame_rate = 30
+    config.pixel_width = 1280
+    config.pixel_height = 720
+else:
+    config.frame_rate = 60
+    config.pixel_width = 1920
+    config.pixel_height = 1080
 
 class QuickHullVisualization(Scene):
     
     def construct(self):
         # Title
-        title = Text("QuickHull Algorithm", font_size=48).to_edge(UP)
-        subtitle = Text("Divide & Conquer with Aggressive Pruning", font_size=28).next_to(title, DOWN)
+        title = DocText("QuickHull Algorithm", font_size=48).to_edge(UP)
+        subtitle = DocText("Divide & Conquer with Aggressive Pruning", font_size=28).next_to(title, DOWN)
         self.play(Write(title), Write(subtitle))
         self.wait(0.165)
         self.play(FadeOut(title), FadeOut(subtitle))
@@ -41,7 +53,7 @@ class QuickHullVisualization(Scene):
         self.wait(0.165)
         
         # Add title for this step
-        step_title = Text("Step 0: Find Extreme Points", font_size=32).to_corner(UL)
+        step_title = DocText("Step 0: Find Extreme Points", font_size=32).to_corner(UL)
         self.play(Write(step_title))
         
         # Find and highlight LEFT and RIGHT
@@ -51,8 +63,8 @@ class QuickHullVisualization(Scene):
         left_point = points[left_idx]
         right_point = points[right_idx]
         
-        left_label = Text("LEFT", font_size=24, color=GREEN).next_to(left_point, DOWN)
-        right_label = Text("RIGHT", font_size=24, color=GREEN).next_to(right_point, DOWN)
+        left_label = DocText("LEFT", font_size=24, color=GREEN).next_to(left_point, DOWN)
+        right_label = DocText("RIGHT", font_size=24, color=GREEN).next_to(right_point, DOWN)
         
         self.play(
             left_point.animate.set_color(GREEN).scale(1.5),
@@ -69,7 +81,7 @@ class QuickHullVisualization(Scene):
             color=GREEN,
             stroke_width=4
         )
-        baseline_label = Text("Baseline", font_size=20, color=GREEN).move_to(
+        baseline_label = DocText("Baseline", font_size=20, color=GREEN).move_to(
             (left_point.get_center() + right_point.get_center()) / 2 + DOWN * 0.5
         )
         self.play(Create(baseline), Write(baseline_label))
@@ -77,7 +89,7 @@ class QuickHullVisualization(Scene):
         
         # Partition into above and below
         self.play(FadeOut(step_title))
-        partition_title = Text("Partition: Above & Below Baseline", font_size=32).to_corner(UL)
+        partition_title = DocText("Partition: Above & Below Baseline", font_size=32).to_corner(UL)
         self.play(Write(partition_title))
         
         above_points = []
@@ -102,7 +114,7 @@ class QuickHullVisualization(Scene):
         
         # Now solve upper hull recursively
         self.play(FadeOut(partition_title))
-        upper_title = Text("Solving Upper Hull (Above Baseline)", font_size=32).to_corner(UL)
+        upper_title = DocText("Solving Upper Hull (Above Baseline)", font_size=32).to_corner(UL)
         self.play(Write(upper_title))
         
         # Fade out below points temporarily
@@ -124,7 +136,7 @@ class QuickHullVisualization(Scene):
         
         # Now solve lower hull
         self.play(FadeOut(upper_title))
-        lower_title = Text("Solving Lower Hull (Below Baseline)", font_size=32).to_corner(UL)
+        lower_title = DocText("Solving Lower Hull (Below Baseline)", font_size=32).to_corner(UL)
         self.play(Write(lower_title))
         
         # Fade out above points, restore below
@@ -147,7 +159,7 @@ class QuickHullVisualization(Scene):
         
         # Show final convex hull
         self.play(FadeOut(lower_title), FadeOut(baseline_label))
-        final_title = Text("Final Convex Hull", font_size=36, color=GOLD).to_corner(UL)
+        final_title = DocText("Final Convex Hull", font_size=36, color=GOLD).to_corner(UL)
         self.play(Write(final_title))
         
         # Restore all points visibility
@@ -179,9 +191,9 @@ class QuickHullVisualization(Scene):
         
         # Show statistics
         stats = VGroup(
-            Text(f"Total Points: {len(points_coords)}", font_size=24),
-            Text(f"Hull Points: {len(hull_points)}", font_size=24),
-            Text(f"Pruned: {len(points_coords) - len(hull_points)}", font_size=24, color=RED)
+            DocText(f"Total Points: {len(points_coords)}", font_size=24),
+            DocText(f"Hull Points: {len(hull_points)}", font_size=24),
+            DocText(f"Pruned: {len(points_coords) - len(hull_points)}", font_size=24, color=RED)
         ).arrange(DOWN, aligned_edge=LEFT).to_corner(DR)
         
         self.play(Write(stats))
@@ -191,7 +203,7 @@ class QuickHullVisualization(Scene):
         self.play(*[FadeOut(mob) for mob in self.mobjects])
         
         # Final message
-        end_text = Text("QuickHull: Θ(N log N) average case", font_size=36)
+        end_text = DocText("QuickHull: Θ(N log N) average case", font_size=36)
         self.play(Write(end_text))
         self.wait(0.5)
     
@@ -241,7 +253,7 @@ class QuickHullVisualization(Scene):
         
         # Highlight PMAX
         pmax_point = points[pmax_idx]
-        pmax_label = Text("PMAX", font_size=20, color=RED).next_to(pmax_point, UP, buff=0.2)
+        pmax_label = DocText("PMAX", font_size=20, color=RED).next_to(pmax_point, UP, buff=0.2)
         
         self.play(
             pmax_point.animate.set_color(RED).scale(1.4),
@@ -286,7 +298,7 @@ class QuickHullVisualization(Scene):
         
         # Animate pruning (fade out inside points)
         if inside_indices:
-            prune_text = Text(f"Prune {len(inside_indices)} interior points", 
+            prune_text = DocText(f"Prune {len(inside_indices)} interior points", 
                             font_size=20, color=RED).to_edge(DOWN)
             self.play(Write(prune_text), run_time=max(0.05 * speed_multiplier, min_wait))
             self.play(
@@ -419,17 +431,17 @@ class QuickHullStepByStep(Scene):
     
     def construct(self):
         # Title
-        title = Text("QuickHull: Step-by-Step", font_size=48).to_edge(UP)
+        title = DocText("QuickHull: Step-by-Step", font_size=48).to_edge(UP)
         self.play(Write(title))
         self.wait(1)
         
         # Show key idea
         idea = VGroup(
-            Text("Key Idea:", font_size=32, color=YELLOW),
-            Text("• Find extreme points (LEFT, RIGHT)", font_size=24),
-            Text("• Find PMAX (farthest from baseline)", font_size=24),
-            Text("• Prune interior points aggressively", font_size=24, color=RED),
-            Text("• Recurse on remaining points", font_size=24)
+            DocText("Key Idea:", font_size=32, color=YELLOW),
+            DocText("• Find extreme points (LEFT, RIGHT)", font_size=24),
+            DocText("• Find PMAX (farthest from baseline)", font_size=24),
+            DocText("• Prune interior points aggressively", font_size=24, color=RED),
+            DocText("• Recurse on remaining points", font_size=24)
         ).arrange(DOWN, aligned_edge=LEFT, buff=0.3)
         
         self.play(Write(idea))
@@ -438,21 +450,21 @@ class QuickHullStepByStep(Scene):
         self.play(FadeOut(title), FadeOut(idea))
         
         # Show complexity analysis
-        complexity_title = Text("Runtime Analysis", font_size=36).to_edge(UP)
+        complexity_title = DocText("Runtime Analysis", font_size=36).to_edge(UP)
         self.play(Write(complexity_title))
         
         analysis = VGroup(
-            Text("Recurrence: T(N) = 2·T(N/3) + Θ(N)", font_size=28),
-            Text("(assuming 2/3 of points pruned each time)", font_size=20, color=GRAY),
-            Text("", font_size=10),
-            Text("A = 2 (two recursive calls)", font_size=24),
-            Text("B = 3 (problem size divided by 3)", font_size=24),
-            Text("D = 1 (linear work per level)", font_size=24),
-            Text("", font_size=10),
-            Text("A < B^D  →  2 < 3^1", font_size=28, color=YELLOW),
-            Text("Case 1 of Universal D&C Theorem", font_size=24, color=GREEN),
-            Text("", font_size=10),
-            Text("Runtime: Θ(N) average case!", font_size=32, color=GREEN)
+            DocText("Recurrence: T(N) = 2·T(N/3) + Θ(N)", font_size=28),
+            DocText("(assuming 2/3 of points pruned each time)", font_size=20, color=GRAY),
+            DocText("", font_size=10),
+            DocText("A = 2 (two recursive calls)", font_size=24),
+            DocText("B = 3 (problem size divided by 3)", font_size=24),
+            DocText("D = 1 (linear work per level)", font_size=24),
+            DocText("", font_size=10),
+            DocText("A < B^D  →  2 < 3^1", font_size=28, color=YELLOW),
+            DocText("Case 1 of Universal D&C Theorem", font_size=24, color=GREEN),
+            DocText("", font_size=10),
+            DocText("Runtime: Θ(N) average case!", font_size=32, color=GREEN)
         ).arrange(DOWN, aligned_edge=LEFT, buff=0.2).shift(DOWN * 0.5)
         
         self.play(Write(analysis), run_time=4)
@@ -461,7 +473,7 @@ class QuickHullStepByStep(Scene):
         # Comparison with other approaches
         self.play(FadeOut(complexity_title), FadeOut(analysis))
         
-        comparison_title = Text("Comparison with Other Approaches", font_size=36).to_edge(UP)
+        comparison_title = DocText("Comparison with Other Approaches", font_size=36).to_edge(UP)
         self.play(Write(comparison_title))
         
         table_data = [
@@ -478,11 +490,11 @@ class QuickHullStepByStep(Scene):
             row_group = VGroup()
             for j, cell in enumerate(row):
                 if i == 0:
-                    cell_text = Text(cell, font_size=24, color=YELLOW)
+                    cell_text = DocText(cell, font_size=24, color=YELLOW)
                 elif cell == "Θ(N log N) avg":
-                    cell_text = Text(cell, font_size=20, color=GREEN)
+                    cell_text = DocText(cell, font_size=20, color=GREEN)
                 else:
-                    cell_text = Text(cell, font_size=20)
+                    cell_text = DocText(cell, font_size=20)
                 
                 if j == 0:
                     cell_text.move_to(LEFT * 4 + UP * (1.5 - i * 0.5))
@@ -499,7 +511,7 @@ class QuickHullStepByStep(Scene):
         
         self.play(*[FadeOut(mob) for mob in self.mobjects])
         
-        end_text = Text("QuickHull wins on average!", font_size=48, color=GREEN)
+        end_text = DocText("QuickHull wins on average!", font_size=48, color=GREEN)
         self.play(Write(end_text))
         self.wait(2)
 
