@@ -115,3 +115,4 @@ class BaseTreeVisualization(Scene):
         self.play(*[FadeOut(mob) for mob in mobjects if mob is not None], run_time=run_time)
 
 
+

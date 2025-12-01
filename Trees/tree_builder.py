@@ -25,6 +25,41 @@ class BTreeState:
     nodes: Dict[int, BTreeNodeData]
     root_id: int
 
+
+@dataclass
+class BTreeDiff:
+    """Diff between two B-tree states for localized animations."""
+    new_nodes: set          # node IDs in new_state only
+    removed_nodes: set      # node IDs in old_state only  
+    modified_nodes: set     # node IDs in both but keys differ
+    unchanged_nodes: set    # node IDs in both with identical keys
+
+
+def diff_btree_states(old: BTreeState, new: BTreeState) -> BTreeDiff:
+    """Compute structural diff between two B-tree states."""
+    old_ids = set(old.nodes.keys())
+    new_ids = set(new.nodes.keys())
+
+    common = old_ids & new_ids
+    new_nodes = new_ids - old_ids
+    removed_nodes = old_ids - new_ids
+
+    modified_nodes = set()
+    unchanged_nodes = set()
+    for nid in common:
+        if old.nodes[nid].keys == new.nodes[nid].keys:
+            unchanged_nodes.add(nid)
+        else:
+            modified_nodes.add(nid)
+
+    return BTreeDiff(
+        new_nodes=new_nodes,
+        removed_nodes=removed_nodes,
+        modified_nodes=modified_nodes,
+        unchanged_nodes=unchanged_nodes,
+    )
+
+
 class BinaryTreeBuilder:
     """Helper class for binary tree building operations"""
     
@@ -324,14 +359,25 @@ class BTreeNode(VGroup):
         ]).arrange(RIGHT, buff=0.2)
         key_texts.move_to(rect)
 
-        # z-index layering: rect < labels
-        rect.set_z_index(2)
-        key_texts.set_z_index(3)
+        # z-index layering: nodes above edges (5), rect < labels
+        rect.set_z_index(10)
+        key_texts.set_z_index(11)
 
         self.add(rect, key_texts)
         self.rect = rect
         self.key_texts = key_texts
-        self.set_z_index(2)
+        self.set_z_index(10)
+
+
+def _connect_edge_to_nodes(edge: Line, parent_node: 'BTreeNode', child_node: 'BTreeNode') -> None:
+    """Attach an updater so the edge always connects the given parent/child nodes."""
+    def update_edge(e: Line) -> None:
+        e.put_start_and_end_on(
+            parent_node.get_bottom(),
+            child_node.get_top(),
+        )
+    edge.clear_updaters()
+    edge.add_updater(update_edge)
 
 
 def build_btree_graph_from_state(
@@ -339,7 +385,7 @@ def build_btree_graph_from_state(
     vertex_spacing: Tuple[float, float] = (2.8, 1.5),
     layout_scale: float = 2.0,
     x_offset: float = 1.8,
-) -> Tuple[VGroup, Dict[int, BTreeNode]]:
+) -> Tuple[VGroup, Dict[int, BTreeNode], Dict[Tuple[int, int], Line]]:
     """
     Build a Manim visualization from a pure BTreeState using tree layout.
     
@@ -350,7 +396,9 @@ def build_btree_graph_from_state(
         x_offset: Horizontal offset to shift tree right (avoid overlap with UI)
     
     Returns:
-        Tuple of (VGroup containing all nodes and edges, dict mapping node_id -> BTreeNode)
+        Tuple of (VGroup containing all nodes and edges,
+                  dict mapping node_id -> BTreeNode,
+                  dict mapping (parent_id, child_id) -> Line edge)
     """
     nodes = state.nodes
     root = state.root_id
@@ -381,7 +429,8 @@ def build_btree_graph_from_state(
         bt_node.move_to(g[nid].get_center())
         btree_nodes[nid] = bt_node
 
-    # Create edges between BTreeNodes
+    # Create edges between BTreeNodes with updaters
+    edges_dict: Dict[Tuple[int, int], Line] = {}
     edges = VGroup()
     for parent_id, child_id in edges_list:
         parent_node = btree_nodes[parent_id]
@@ -392,8 +441,10 @@ def build_btree_graph_from_state(
             color=WHITE,
             stroke_width=2,
         )
-        edge.set_z_index(1)
+        edge.set_z_index(5)  # Below nodes (10)
+        _connect_edge_to_nodes(edge, parent_node, child_node)
         edges.add(edge)
+        edges_dict[(parent_id, child_id)] = edge
 
     # Combine into VGroup
     all_nodes = VGroup(*btree_nodes.values())
@@ -402,7 +453,7 @@ def build_btree_graph_from_state(
     # Shift entire group right to avoid overlap with side panel
     result.shift(RIGHT * x_offset)
 
-    return result, btree_nodes
+    return result, btree_nodes, edges_dict
 
 
 def get_btree_key_rect(node: BTreeNode, key_idx: int) -> Optional[Rectangle]:
@@ -415,8 +466,133 @@ def get_btree_key_rect(node: BTreeNode, key_idx: int) -> Optional[Rectangle]:
             color=GREEN,
             stroke_width=3,
         ).move_to(key_text.get_center())
-        key_rect.set_z_index(4)  # Above labels
+        key_rect.set_z_index(20)  # Above node labels
         return key_rect
     return None
+
+
+def animate_btree_transition(
+    scene,
+    prev_state: BTreeState,
+    new_state: BTreeState,
+    prev_nodes: Dict[int, 'BTreeNode'],
+    prev_edges: Dict[Tuple[int, int], Line],
+    x_offset: float = 1.8,
+    run_time: float = 1.0,
+) -> Tuple[Dict[int, 'BTreeNode'], Dict[Tuple[int, int], Line]]:
+    """
+    Animate transition between B-tree states with localized animations.
+    Only animates nodes/edges that actually changed.
+    
+    Args:
+        scene: Manim Scene object
+        prev_state: Previous BTreeState
+        new_state: New BTreeState after operation
+        prev_nodes: Dict mapping node_id -> BTreeNode mobject
+        prev_edges: Dict mapping (parent_id, child_id) -> Line mobject
+        x_offset: Horizontal offset for tree positioning
+        run_time: Animation duration
+    
+    Returns:
+        Tuple of (new_nodes_dict, new_edges_dict) for next iteration
+    """
+    for node in prev_nodes.values():
+        node.rect.set_color(BLUE)
+        node.rect.set_fill(BLUE, opacity=0.2)
+    
+    # Build target layout to get positions
+    target_group, target_nodes, target_edges = build_btree_graph_from_state(
+        new_state, x_offset=x_offset
+    )
+    
+    diff = diff_btree_states(prev_state, new_state)
+    
+    node_anims = []
+    edge_anims = []
+    new_nodes_dict: Dict[int, BTreeNode] = {}
+    new_edges_dict: Dict[Tuple[int, int], Line] = {}
+    
+    # Handle unchanged nodes - reuse existing mobjects, move if position changed
+    for nid in diff.unchanged_nodes:
+        old_node = prev_nodes[nid]
+        target_node = target_nodes[nid]
+        new_nodes_dict[nid] = old_node
+        
+        old_pos = old_node.get_center()
+        new_pos = target_node.get_center()
+        
+        if np.linalg.norm(new_pos - old_pos) > 0.01:
+            node_anims.append(old_node.animate.move_to(new_pos))
+    
+    # Handle modified nodes - transform to show new keys
+    for nid in diff.modified_nodes:
+        old_node = prev_nodes[nid]
+        target_node = target_nodes[nid]
+        
+        # Transform old node into new visual
+        node_anims.append(Transform(old_node, target_node))
+        new_nodes_dict[nid] = old_node
+    
+    # Handle new nodes - use FadeIn to preserve fill_opacity
+    for nid in diff.new_nodes:
+        target_node = target_nodes[nid].copy()
+        new_nodes_dict[nid] = target_node
+        node_anims.append(FadeIn(target_node))
+    
+    # Handle removed nodes - fade out
+    for nid in diff.removed_nodes:
+        old_node = prev_nodes[nid]
+        node_anims.append(FadeOut(old_node))
+    
+    # Handle edges
+    old_edge_keys = set(prev_edges.keys())
+    new_edge_keys = set(target_edges.keys())
+    
+    kept_edges = old_edge_keys & new_edge_keys
+    added_edges = new_edge_keys - old_edge_keys
+    removed_edges = old_edge_keys - new_edge_keys
+    
+    # Kept edges - reattach updater so they follow moved/transformed nodes
+    for ek in kept_edges:
+        old_edge = prev_edges[ek]
+        parent_id, child_id = ek
+        parent_node = new_nodes_dict[parent_id]
+        child_node = new_nodes_dict[child_id]
+        new_edges_dict[ek] = old_edge
+        
+        # Updater will keep edge connected to nodes during animation
+        _connect_edge_to_nodes(old_edge, parent_node, child_node)
+    
+    # New edges - create with updater and animate in
+    for ek in added_edges:
+        parent_id, child_id = ek
+        parent_node = new_nodes_dict[parent_id]
+        child_node = new_nodes_dict[child_id]
+        new_edge = Line(
+            ORIGIN, ORIGIN,  # Updater will set correct endpoints
+            color=WHITE,
+            stroke_width=2,
+        )
+        new_edge.set_z_index(5)  # Below nodes (10)
+        _connect_edge_to_nodes(new_edge, parent_node, child_node)
+        new_edges_dict[ek] = new_edge
+        scene.add(new_edge)
+        edge_anims.append(Create(new_edge))
+    
+    # Removed edges - clear updaters and fade out
+    for ek in removed_edges:
+        old_edge = prev_edges[ek]
+        old_edge.clear_updaters()
+        edge_anims.append(FadeOut(old_edge))
+    
+    # Play all animations together
+    if node_anims or edge_anims:
+        scene.play(
+            AnimationGroup(*node_anims, *edge_anims, lag_ratio=0.0),
+            run_time=run_time,
+        )
+    
+    return new_nodes_dict, new_edges_dict
+
 
 

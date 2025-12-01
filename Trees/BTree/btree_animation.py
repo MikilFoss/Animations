@@ -16,7 +16,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from Trees.base_tree_visualization import BaseTreeVisualization
-from Trees.tree_builder import BTreeBuilder, BTreeNode, build_btree_graph_from_state, get_btree_key_rect
+from Trees.tree_builder import BTreeBuilder, BTreeNode, build_btree_graph_from_state, get_btree_key_rect, animate_btree_transition
 
 
 class BTreeVisualization(BaseTreeVisualization):
@@ -71,8 +71,9 @@ class BTreeVisualization(BaseTreeVisualization):
         
         # 5. Build B-tree with insertions using BTreeBuilder
         builder = BTreeBuilder(order=3)
-        current_tree_group = None
-        current_nodes = None
+        prev_state = None
+        prev_nodes = None      # Dict[int, BTreeNode]
+        prev_edges = None      # Dict[Tuple[int, int], Line]
         
         insert_sequence = [10, 20, 30, 40, 50, 60, 70, 80, 90]
         
@@ -86,7 +87,7 @@ class BTreeVisualization(BaseTreeVisualization):
             old_node_count = len(builder._nodes) if builder._root_id is not None else 0
             
             # If tree exists, show step-by-step traversal to find insertion point
-            if current_tree_group is not None and current_nodes is not None:
+            if prev_state is not None and prev_nodes is not None:
                 # Get the path we'll traverse to insert
                 insertion_path = builder.get_insertion_path(val)
                 
@@ -94,15 +95,14 @@ class BTreeVisualization(BaseTreeVisualization):
                 self.update_explainer(f"Finding where\nto insert {val}...", ORANGE)
                 
                 for i, nid in enumerate(insertion_path):
-                    if nid in current_nodes:
-                        node_mobj = current_nodes[nid]
+                    if nid in prev_nodes:
+                        node_mobj = prev_nodes[nid]
                         is_leaf = (i == len(insertion_path) - 1)
                         
-                        # Highlight current node being examined
+                        # Highlight current node being examined (orange highlight, no pulsing)
                         self.play(
                             node_mobj.rect.animate.set_color(ORANGE),
-                            node_mobj.animate.scale(1.08),
-                            run_time=0.25,
+                            run_time=0.5,
                         )
                         
                         if is_leaf:
@@ -117,19 +117,26 @@ class BTreeVisualization(BaseTreeVisualization):
                             else:
                                 self.update_explainer(f"Compare keys\nGo to child", WHITE)
                         
-                        self.wait(0.2)
+                        self.wait(0.5)
                         
-                        # Reset color (keep scale for leaf)
+                        # Reset color for non-leaf nodes
                         if not is_leaf:
                             self.play(
                                 node_mobj.rect.animate.set_color(BLUE),
-                                node_mobj.animate.scale(1/1.08),
-                                run_time=0.2,
+                                run_time=0.4,
                             )
+
+                if insertion_path:
+                    leaf_id = insertion_path[-1]
+                    if leaf_id in prev_nodes:
+                        leaf_node = prev_nodes[leaf_id]
+                        self.play(
+                            leaf_node.rect.animate.set_color(BLUE),
+                            run_time=0.3,
+                        )
             
             # Insert and get new state
             new_state, inserted_leaf_id = builder.insert_and_snapshot(val)
-            new_tree_group, new_nodes = build_btree_graph_from_state(new_state)
             
             # Check if split occurred
             new_node_count = len(new_state.nodes)
@@ -141,40 +148,30 @@ class BTreeVisualization(BaseTreeVisualization):
             else:
                 self.update_explainer(f"Inserted {val}", GREEN)
             
-            # Animate transition
-            if current_tree_group is None:
-                self.play(Create(new_tree_group), run_time=0.7)
+            # Animate transition with localized animations
+            if prev_state is None:
+                # First tree: create everything
+                tree_group, prev_nodes, prev_edges = build_btree_graph_from_state(new_state)
+                self.play(Create(tree_group), run_time=1.0)
             else:
-                self.play(
-                    TransformMatchingShapes(
-                        current_tree_group,
-                        new_tree_group,
-                        fade_transform_mismatches=True,
-                    ),
-                    run_time=0.6,
-                )
-                self.remove(current_tree_group)
-            
-            current_tree_group = new_tree_group
-            current_nodes = new_nodes
-            
-            # Highlight the node where the key was inserted (green flash)
-            if inserted_leaf_id in current_nodes:
-                inserted_node = current_nodes[inserted_leaf_id]
-                self.play(
-                    inserted_node.rect.animate.set_color(GREEN),
-                    inserted_node.animate.scale(1.1),
-                    run_time=0.25,
-                )
-                self.wait(0.15)
-                self.play(
-                    inserted_node.rect.animate.set_color(BLUE),
-                    inserted_node.animate.scale(1/1.1),
-                    run_time=0.25,
+                # Use localized transition - only animates changed parts
+                prev_nodes, prev_edges = animate_btree_transition(
+                    self, prev_state, new_state, prev_nodes, prev_edges, run_time=1.0
                 )
             
-            self.play(FadeOut(insert_val_text), run_time=0.2)
-            self.wait(0.15)
+            prev_state = new_state
+            current_nodes = prev_nodes  # Keep reference for traversal highlighting
+            
+            # Shrink and shift left after 90 insertion (tree gets too big)
+            if val == 90 and split_occurred:
+                all_mobjects = list(prev_nodes.values()) + list(prev_edges.values())
+                self.play(
+                    *[m.animate.scale(0.8).shift(LEFT * 1.5) for m in all_mobjects],
+                    run_time=0.8,
+                )
+            
+            self.play(FadeOut(insert_val_text), run_time=0.3)
+            self.wait(0.3)
         
         # 6. Clear explainer
         fade_outs = [FadeOut(explainer_panel), FadeOut(explainer_title)]
@@ -197,17 +194,16 @@ class BTreeVisualization(BaseTreeVisualization):
         path_node_ids = builder.search_path(search_val)
         found = False
         
-        for nid in path_node_ids:
+        for i, nid in enumerate(path_node_ids):
             # Get the BTreeNode from our nodes dict
             node_mobj = current_nodes[nid]
+            is_final = (i == len(path_node_ids) - 1)
             
-            # Highlight node
+            # Highlight node with orange (consistent with insertion traversal)
             self.play(
-                node_mobj.rect.animate.set_color(YELLOW),
-                node_mobj.animate.scale(1.05),
-                run_time=0.4,
+                node_mobj.rect.animate.set_color(ORANGE),
+                run_time=0.5,
             )
-            self.wait(0.2)
             
             # Check if key is in this node
             node_keys = builder._nodes[nid].keys
@@ -223,18 +219,17 @@ class BTreeVisualization(BaseTreeVisualization):
                 # Reset highlight
                 self.play(
                     node_mobj.rect.animate.set_color(BLUE),
-                    node_mobj.animate.scale(1/1.05),
-                    run_time=0.2,
+                    run_time=0.4,
                 )
                 break
             else:
-                # Reset and continue
-                self.play(
-                    node_mobj.rect.animate.set_color(BLUE),
-                    node_mobj.animate.scale(1/1.05),
-                    run_time=0.2,
-                )
-                self.wait(0.15)
+                self.wait(0.5)
+                # Reset and continue to next node
+                if not is_final:
+                    self.play(
+                        node_mobj.rect.animate.set_color(BLUE),
+                        run_time=0.4,
+                    )
         
         if not found:
             not_found_text = Text("Key not found", font_size=24, color=RED, disable_ligatures=True)
@@ -244,7 +239,8 @@ class BTreeVisualization(BaseTreeVisualization):
             self.play(FadeOut(not_found_text), run_time=0.2)
         
         # 8. Fade out tree and search UI
-        self.fade_out_group(current_tree_group, search_title, search_text)
+        all_tree_mobjects = list(prev_nodes.values()) + list(prev_edges.values())
+        self.play(*[FadeOut(m) for m in all_tree_mobjects], FadeOut(search_title), FadeOut(search_text), run_time=0.5)
         self.wait(0.3)
         
         # 9. Why B-trees for databases - Final slide
