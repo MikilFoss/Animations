@@ -339,6 +339,482 @@ class BTreeBuilder:
         self._root_id = new_root.id
 
 
+@dataclass
+class BSTNodeData:
+    id: int
+    key: int
+    left: Optional[int] = None   # child node IDs
+    right: Optional[int] = None
+
+
+@dataclass
+class BSTState:
+    """Immutable snapshot of a BST at a given step."""
+    nodes: Dict[int, BSTNodeData]
+    root_id: Optional[int]
+
+
+@dataclass
+class BSTDiff:
+    """Diff between two BST states for localized animations."""
+    new_nodes: set          # node IDs in new_state only
+    removed_nodes: set      # node IDs in old_state only
+    modified_nodes: set     # key changed (two-children delete)
+    unchanged_nodes: set    # node IDs in both with identical keys
+
+
+def diff_bst_states(old: BSTState, new: BSTState) -> BSTDiff:
+    """Compute structural diff between two BST states."""
+    old_ids = set(old.nodes.keys()) if old.nodes else set()
+    new_ids = set(new.nodes.keys()) if new.nodes else set()
+
+    common = old_ids & new_ids
+    new_nodes = new_ids - old_ids
+    removed_nodes = old_ids - new_ids
+
+    modified_nodes = set()
+    unchanged_nodes = set()
+    for nid in common:
+        if old.nodes[nid].key == new.nodes[nid].key:
+            unchanged_nodes.add(nid)
+        else:
+            modified_nodes.add(nid)
+
+    return BSTDiff(
+        new_nodes=new_nodes,
+        removed_nodes=removed_nodes,
+        modified_nodes=modified_nodes,
+        unchanged_nodes=unchanged_nodes,
+    )
+
+
+class BSTBuilder:
+    """Pure Python BST builder with no Manim dependencies."""
+    
+    def __init__(self):
+        self.reset()
+    
+    def reset(self):
+        self._next_id = 0
+        self._nodes: Dict[int, BSTNodeData] = {}
+        self._root_id: Optional[int] = None
+    
+    def _new_node(self, key: int) -> BSTNodeData:
+        node = BSTNodeData(id=self._next_id, key=key)
+        self._nodes[self._next_id] = node
+        self._next_id += 1
+        return node
+    
+    def _snapshot(self) -> BSTState:
+        nodes_copy = {}
+        for nid, node in self._nodes.items():
+            nodes_copy[nid] = BSTNodeData(
+                id=node.id,
+                key=node.key,
+                left=node.left,
+                right=node.right
+            )
+        return BSTState(nodes=nodes_copy, root_id=self._root_id)
+    
+    def insert_and_snapshot(self, key: int) -> Tuple[BSTState, int]:
+        """
+        Insert a key and return (snapshot, node_id of inserted node).
+        """
+        if self._root_id is None:
+            root = self._new_node(key)
+            self._root_id = root.id
+            return self._snapshot(), root.id
+        
+        # Find insertion point
+        current_id = self._root_id
+        while True:
+            current = self._nodes[current_id]
+            if key < current.key:
+                if current.left is None:
+                    new_node = self._new_node(key)
+                    current.left = new_node.id
+                    return self._snapshot(), new_node.id
+                current_id = current.left
+            elif key > current.key:
+                if current.right is None:
+                    new_node = self._new_node(key)
+                    current.right = new_node.id
+                    return self._snapshot(), new_node.id
+                current_id = current.right
+            else:
+                # Duplicate key - return current state and existing node
+                return self._snapshot(), current_id
+    
+    def get_insertion_path(self, key: int) -> List[int]:
+        """Get the path from root to where a key would be inserted (without inserting)."""
+        if self._root_id is None:
+            return []
+        path = []
+        current_id = self._root_id
+        while current_id is not None:
+            path.append(current_id)
+            current = self._nodes[current_id]
+            if key < current.key:
+                if current.left is None:
+                    break
+                current_id = current.left
+            elif key > current.key:
+                if current.right is None:
+                    break
+                current_id = current.right
+            else:
+                break  # Key already exists
+        return path
+    
+    def search_path(self, key: int) -> List[int]:
+        """Get the path from root to a key (or where it would be)."""
+        if self._root_id is None:
+            return []
+        path = []
+        current_id = self._root_id
+        while current_id is not None:
+            path.append(current_id)
+            current = self._nodes[current_id]
+            if key == current.key:
+                break
+            elif key < current.key:
+                current_id = current.left
+            else:
+                current_id = current.right
+        return path
+    
+    def classify_deletion_case(self, key: int) -> Tuple[Optional[int], str]:
+        """
+        Classify the deletion case for a key.
+        
+        Returns:
+            (node_id, case_str) where case_str in {"leaf", "one_child", "two_children", "not_found"}
+        """
+        if self._root_id is None:
+            return None, "not_found"
+        
+        # Find the node
+        current_id = self._root_id
+        while current_id is not None:
+            current = self._nodes[current_id]
+            if key == current.key:
+                # Found the node - classify
+                has_left = current.left is not None
+                has_right = current.right is not None
+                if not has_left and not has_right:
+                    return current_id, "leaf"
+                elif has_left and has_right:
+                    return current_id, "two_children"
+                else:
+                    return current_id, "one_child"
+            elif key < current.key:
+                current_id = current.left
+            else:
+                current_id = current.right
+        
+        return None, "not_found"
+    
+    def _find_min_with_parent(self, node_id: int, parent_id: Optional[int]) -> Tuple[int, Optional[int]]:
+        """Find minimum node in subtree and its parent."""
+        current_id = node_id
+        current_parent = parent_id
+        while True:
+            current = self._nodes[current_id]
+            if current.left is None:
+                return current_id, current_parent
+            current_parent = current_id
+            current_id = current.left
+    
+    def _delete_recursive(self, node_id: Optional[int], key: int) -> Tuple[Optional[int], str]:
+        """
+        Delete key from subtree rooted at node_id.
+        
+        Returns:
+            (new_subtree_root_id, case_str)
+        """
+        if node_id is None:
+            return None, "not_found"
+        
+        node = self._nodes[node_id]
+        
+        if key < node.key:
+            new_left, case = self._delete_recursive(node.left, key)
+            node.left = new_left
+            return node_id, case
+        elif key > node.key:
+            new_right, case = self._delete_recursive(node.right, key)
+            node.right = new_right
+            return node_id, case
+        else:
+            # Found the node to delete
+            has_left = node.left is not None
+            has_right = node.right is not None
+            
+            if not has_left and not has_right:
+                # Leaf node
+                del self._nodes[node_id]
+                return None, "leaf"
+            elif not has_left:
+                # Only right child
+                del self._nodes[node_id]
+                return node.right, "one_child"
+            elif not has_right:
+                # Only left child
+                del self._nodes[node_id]
+                return node.left, "one_child"
+            else:
+                # Two children - find inorder successor
+                successor_id, successor_parent = self._find_min_with_parent(node.right, node_id)
+                successor = self._nodes[successor_id]
+                
+                # Copy successor's key to current node
+                node.key = successor.key
+                
+                # Delete successor (it has at most one child - right child)
+                if successor_parent == node_id:
+                    # Successor is immediate right child
+                    node.right = successor.right
+                else:
+                    # Successor is deeper in the tree
+                    parent = self._nodes[successor_parent]
+                    parent.left = successor.right
+                
+                del self._nodes[successor_id]
+                return node_id, "two_children"
+    
+    def delete_and_snapshot(self, key: int) -> Tuple[BSTState, str]:
+        """
+        Delete a key and return (snapshot, case_str).
+        
+        case_str in {"leaf", "one_child", "two_children", "not_found"}
+        """
+        new_root, case = self._delete_recursive(self._root_id, key)
+        self._root_id = new_root
+        return self._snapshot(), case
+
+
+def _connect_edge_to_circular_nodes(edge: Line, parent_node: VGroup, child_node: VGroup) -> None:
+    """Attach an updater so the edge always connects the given parent/child circular nodes."""
+    def update_edge(e: Line) -> None:
+        try:
+            start = parent_node[0].get_bottom()  # [0] is the circle
+            end = child_node[0].get_top()
+            # Avoid zero-length edges which cause numpy cross product errors
+            if np.linalg.norm(end - start) > 0.01:
+                e.put_start_and_end_on(start, end)
+        except (ValueError, IndexError, AttributeError):
+            pass  # Skip update if geometry is invalid
+    edge.clear_updaters()
+    edge.add_updater(update_edge)
+
+
+def build_bst_graph_from_state(
+    state: BSTState,
+    vertex_spacing: Tuple[float, float] = (1.5, 1.2),
+    layout_scale: float = 2.0,
+    x_offset: float = 1.8,
+) -> Tuple[VGroup, Dict[int, VGroup], Dict[Tuple[int, int], Line]]:
+    """
+    Build a Manim visualization from a pure BSTState using tree layout.
+    
+    Args:
+        state: BSTState snapshot from BSTBuilder
+        vertex_spacing: (horizontal, vertical) spacing between nodes
+        layout_scale: Overall scale of the layout
+        x_offset: Horizontal offset to shift tree right (avoid overlap with UI)
+    
+    Returns:
+        Tuple of (VGroup containing all nodes and edges,
+                  dict mapping node_id -> VGroup (circular node),
+                  dict mapping (parent_id, child_id) -> Line edge)
+    """
+    if state.root_id is None or not state.nodes:
+        return VGroup(), {}, {}
+    
+    nodes = state.nodes
+    root = state.root_id
+
+    vertices = list(nodes.keys())
+    edges_list = []
+    for nid, node in nodes.items():
+        if node.left is not None:
+            edges_list.append((nid, node.left))
+        if node.right is not None:
+            edges_list.append((nid, node.right))
+
+    # Create Graph just for layout calculation
+    g = Graph(
+        vertices,
+        edges_list,
+        layout="tree",
+        layout_scale=layout_scale,
+        layout_config={
+            "root_vertex": root,
+            "vertex_spacing": vertex_spacing,
+        },
+    )
+
+    # Create circular nodes at calculated positions
+    bst_nodes: Dict[int, VGroup] = {}
+    for nid in vertices:
+        node_data = nodes[nid]
+        pos = g[nid].get_center()
+        bst_node = create_circular_node(node_data.key, pos)
+        bst_node.set_z_index(10)
+        bst_nodes[nid] = bst_node
+
+    # Create edges between nodes with updaters
+    edges_dict: Dict[Tuple[int, int], Line] = {}
+    edges = VGroup()
+    for parent_id, child_id in edges_list:
+        parent_node = bst_nodes[parent_id]
+        child_node = bst_nodes[child_id]
+        edge = Line(
+            parent_node[0].get_bottom(),
+            child_node[0].get_top(),
+            color=WHITE,
+            stroke_width=2,
+        )
+        edge.set_z_index(5)  # Below nodes (10)
+        _connect_edge_to_circular_nodes(edge, parent_node, child_node)
+        edges.add(edge)
+        edges_dict[(parent_id, child_id)] = edge
+
+    # Combine into VGroup
+    all_nodes = VGroup(*bst_nodes.values())
+    result = VGroup(edges, all_nodes)
+    
+    # Shift entire group right to avoid overlap with side panel
+    result.shift(RIGHT * x_offset)
+
+    return result, bst_nodes, edges_dict
+
+
+def animate_bst_transition(
+    scene,
+    prev_state: BSTState,
+    new_state: BSTState,
+    prev_nodes: Dict[int, VGroup],
+    prev_edges: Dict[Tuple[int, int], Line],
+    x_offset: float = 1.8,
+    run_time: float = 1.0,
+) -> Tuple[Dict[int, VGroup], Dict[Tuple[int, int], Line]]:
+    """
+    Animate transition between BST states with localized animations.
+    Only animates nodes/edges that actually changed.
+    
+    Args:
+        scene: Manim Scene object
+        prev_state: Previous BSTState
+        new_state: New BSTState after operation
+        prev_nodes: Dict mapping node_id -> VGroup (circular node) mobject
+        prev_edges: Dict mapping (parent_id, child_id) -> Line mobject
+        x_offset: Horizontal offset for tree positioning
+        run_time: Animation duration
+    
+    Returns:
+        Tuple of (new_nodes_dict, new_edges_dict) for next iteration
+    """
+    # Reset node colors
+    for node in prev_nodes.values():
+        node[0].set_color(BLUE)  # [0] is the circle
+        node[0].set_fill(BLUE, opacity=0.2)
+    
+    # Build target layout to get positions
+    target_group, target_nodes, target_edges = build_bst_graph_from_state(
+        new_state, x_offset=x_offset
+    )
+    
+    diff = diff_bst_states(prev_state, new_state)
+    
+    node_anims = []
+    edge_anims = []
+    new_nodes_dict: Dict[int, VGroup] = {}
+    new_edges_dict: Dict[Tuple[int, int], Line] = {}
+    
+    # Handle unchanged nodes - reuse existing mobjects, move if position changed
+    for nid in diff.unchanged_nodes:
+        old_node = prev_nodes[nid]
+        target_node = target_nodes[nid]
+        new_nodes_dict[nid] = old_node
+        
+        old_pos = old_node.get_center()
+        new_pos = target_node.get_center()
+        
+        if np.linalg.norm(new_pos - old_pos) > 0.01:
+            node_anims.append(old_node.animate.move_to(new_pos))
+    
+    # Handle modified nodes - transform to show new key
+    for nid in diff.modified_nodes:
+        old_node = prev_nodes[nid]
+        target_node = target_nodes[nid]
+        
+        # Transform old node into new visual
+        node_anims.append(Transform(old_node, target_node))
+        new_nodes_dict[nid] = old_node
+    
+    # Handle new nodes - use FadeIn to preserve fill_opacity
+    for nid in diff.new_nodes:
+        target_node = target_nodes[nid].copy()
+        new_nodes_dict[nid] = target_node
+        node_anims.append(FadeIn(target_node))
+    
+    # Handle removed nodes - fade out
+    for nid in diff.removed_nodes:
+        old_node = prev_nodes[nid]
+        node_anims.append(FadeOut(old_node))
+    
+    # Handle edges
+    old_edge_keys = set(prev_edges.keys())
+    new_edge_keys = set(target_edges.keys())
+    
+    kept_edges = old_edge_keys & new_edge_keys
+    added_edges = new_edge_keys - old_edge_keys
+    removed_edges = old_edge_keys - new_edge_keys
+    
+    # Kept edges - reattach updater so they follow moved/transformed nodes
+    for ek in kept_edges:
+        old_edge = prev_edges[ek]
+        parent_id, child_id = ek
+        parent_node = new_nodes_dict[parent_id]
+        child_node = new_nodes_dict[child_id]
+        new_edges_dict[ek] = old_edge
+        
+        # Updater will keep edge connected to nodes during animation
+        _connect_edge_to_circular_nodes(old_edge, parent_node, child_node)
+    
+    # New edges - create with updater and animate in
+    for ek in added_edges:
+        parent_id, child_id = ek
+        parent_node = new_nodes_dict[parent_id]
+        child_node = new_nodes_dict[child_id]
+        new_edge = Line(
+            ORIGIN, ORIGIN,  # Updater will set correct endpoints
+            color=WHITE,
+            stroke_width=2,
+        )
+        new_edge.set_z_index(5)  # Below nodes (10)
+        _connect_edge_to_circular_nodes(new_edge, parent_node, child_node)
+        new_edges_dict[ek] = new_edge
+        scene.add(new_edge)
+        edge_anims.append(Create(new_edge))
+    
+    # Removed edges - clear updaters and fade out
+    for ek in removed_edges:
+        old_edge = prev_edges[ek]
+        old_edge.clear_updaters()
+        edge_anims.append(FadeOut(old_edge))
+    
+    # Play all animations together
+    if node_anims or edge_anims:
+        scene.play(
+            AnimationGroup(*node_anims, *edge_anims, lag_ratio=0.0),
+            run_time=run_time,
+        )
+    
+    return new_nodes_dict, new_edges_dict
+
+
 class BTreeNode(VGroup):
     """Visual B-tree node with rectangular shape and key labels."""
     
@@ -596,3 +1072,631 @@ def animate_btree_transition(
 
 
 
+
+
+# =============================================================================
+# AVL Tree Support
+# =============================================================================
+
+@dataclass
+class AVLNodeData:
+    id: int
+    key: int
+    left: Optional[int] = None
+    right: Optional[int] = None
+    parent: Optional[int] = None
+    height: int = 1
+    balance: int = 0  # bf = height(left) - height(right)
+
+
+@dataclass
+class AVLState:
+    """Immutable snapshot of an AVL tree at a given step."""
+    nodes: Dict[int, AVLNodeData]
+    root_id: Optional[int]
+
+
+@dataclass
+class AVLRotationInfo:
+    """Info about a rotation that occurred during an operation."""
+    pivot_id: int              # the unbalanced node z
+    child_id: Optional[int]    # its child y used in rotation
+    grandchild_id: Optional[int]  # x (for LR/RL), else None
+    rotation_type: str         # "LL", "RR", "LR", "RL"
+
+
+@dataclass
+class AVLStateDiff:
+    """Diff between two AVL states for localized animations."""
+    new_nodes: set
+    removed_nodes: set
+    modified_nodes: set
+    unchanged_nodes: set
+
+
+def diff_avl_states(old: AVLState, new: AVLState) -> AVLStateDiff:
+    """Compute structural diff between two AVL states."""
+    old_ids = set(old.nodes.keys()) if old.nodes else set()
+    new_ids = set(new.nodes.keys()) if new.nodes else set()
+
+    common = old_ids & new_ids
+    new_nodes = new_ids - old_ids
+    removed_nodes = old_ids - new_ids
+
+    modified_nodes = set()
+    unchanged_nodes = set()
+    for nid in common:
+        o = old.nodes[nid]
+        n = new.nodes[nid]
+        if (o.key == n.key and
+            o.left == n.left and
+            o.right == n.right and
+            o.balance == n.balance and
+            o.height == n.height):
+            unchanged_nodes.add(nid)
+        else:
+            modified_nodes.add(nid)
+
+    return AVLStateDiff(
+        new_nodes=new_nodes,
+        removed_nodes=removed_nodes,
+        modified_nodes=modified_nodes,
+        unchanged_nodes=unchanged_nodes,
+    )
+
+
+class AVLBuilder:
+    """Pure Python AVL tree builder with no Manim dependencies."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self._next_id = 0
+        self._nodes: Dict[int, AVLNodeData] = {}
+        self._root_id: Optional[int] = None
+        self.last_rotation: Optional[AVLRotationInfo] = None
+
+    def _new_node(self, key: int, parent: Optional[int] = None) -> AVLNodeData:
+        node = AVLNodeData(id=self._next_id, key=key, parent=parent)
+        self._nodes[self._next_id] = node
+        self._next_id += 1
+        return node
+
+    def _height(self, node_id: Optional[int]) -> int:
+        if node_id is None:
+            return 0
+        return self._nodes[node_id].height
+
+    def _update_height_and_balance(self, node_id: int) -> None:
+        node = self._nodes[node_id]
+        left_h = self._height(node.left)
+        right_h = self._height(node.right)
+        node.height = 1 + max(left_h, right_h)
+        node.balance = left_h - right_h
+
+    def _rotate_left(self, z_id: int) -> int:
+        r"""
+        Left rotation around z. Returns new subtree root (y).
+        
+             z                y
+            / \              / \
+           T1  y    =>      z   T3
+              / \          / \
+             T2  T3       T1  T2
+        """
+        z = self._nodes[z_id]
+        y_id = z.right
+        y = self._nodes[y_id]
+        t2_id = y.left
+
+        # Perform rotation
+        y.left = z_id
+        z.right = t2_id
+
+        # Update parent pointers
+        y.parent = z.parent
+        z.parent = y_id
+        if t2_id is not None:
+            self._nodes[t2_id].parent = z_id
+
+        # Update root if needed
+        if y.parent is None:
+            self._root_id = y_id
+        else:
+            parent = self._nodes[y.parent]
+            if parent.left == z_id:
+                parent.left = y_id
+            else:
+                parent.right = y_id
+
+        # Update heights (z first, then y)
+        self._update_height_and_balance(z_id)
+        self._update_height_and_balance(y_id)
+
+        return y_id
+
+    def _rotate_right(self, z_id: int) -> int:
+        r"""
+        Right rotation around z. Returns new subtree root (y).
+        
+             z                y
+            / \              / \
+           y   T3   =>      T1  z
+          / \                  / \
+         T1  T2               T2  T3
+        """
+        z = self._nodes[z_id]
+        y_id = z.left
+        y = self._nodes[y_id]
+        t2_id = y.right
+
+        # Perform rotation
+        y.right = z_id
+        z.left = t2_id
+
+        # Update parent pointers
+        y.parent = z.parent
+        z.parent = y_id
+        if t2_id is not None:
+            self._nodes[t2_id].parent = z_id
+
+        # Update root if needed
+        if y.parent is None:
+            self._root_id = y_id
+        else:
+            parent = self._nodes[y.parent]
+            if parent.left == z_id:
+                parent.left = y_id
+            else:
+                parent.right = y_id
+
+        # Update heights (z first, then y)
+        self._update_height_and_balance(z_id)
+        self._update_height_and_balance(y_id)
+
+        return y_id
+
+    def _rebalance_path(self, start_id: Optional[int]) -> None:
+        """
+        Walk up from start_id to root, updating heights and rebalancing.
+        Sets self.last_rotation to info about the first rotation performed.
+        """
+        self.last_rotation = None
+        current_id = start_id
+
+        while current_id is not None:
+            self._update_height_and_balance(current_id)
+            node = self._nodes[current_id]
+            balance = node.balance
+
+            if balance > 1:
+                # Left-heavy
+                left_node = self._nodes[node.left]
+                if left_node.balance >= 0:
+                    # LL case - single right rotation
+                    if self.last_rotation is None:
+                        self.last_rotation = AVLRotationInfo(
+                            pivot_id=current_id,
+                            child_id=node.left,
+                            grandchild_id=None,
+                            rotation_type="LL"
+                        )
+                    current_id = self._rotate_right(current_id)
+                else:
+                    # LR case - left rotation on left child, then right rotation
+                    if self.last_rotation is None:
+                        self.last_rotation = AVLRotationInfo(
+                            pivot_id=current_id,
+                            child_id=node.left,
+                            grandchild_id=left_node.right,
+                            rotation_type="LR"
+                        )
+                    self._rotate_left(node.left)
+                    current_id = self._rotate_right(current_id)
+
+            elif balance < -1:
+                # Right-heavy
+                right_node = self._nodes[node.right]
+                if right_node.balance <= 0:
+                    # RR case - single left rotation
+                    if self.last_rotation is None:
+                        self.last_rotation = AVLRotationInfo(
+                            pivot_id=current_id,
+                            child_id=node.right,
+                            grandchild_id=None,
+                            rotation_type="RR"
+                        )
+                    current_id = self._rotate_left(current_id)
+                else:
+                    # RL case - right rotation on right child, then left rotation
+                    if self.last_rotation is None:
+                        self.last_rotation = AVLRotationInfo(
+                            pivot_id=current_id,
+                            child_id=node.right,
+                            grandchild_id=right_node.left,
+                            rotation_type="RL"
+                        )
+                    self._rotate_right(node.right)
+                    current_id = self._rotate_left(current_id)
+
+            # Move up to parent
+            current_id = self._nodes[current_id].parent
+
+    def insert_and_snapshot(self, key: int) -> Tuple[AVLState, int]:
+        """
+        Insert a key and return (snapshot, node_id of inserted node).
+        """
+        self.last_rotation = None
+
+        if self._root_id is None:
+            root = self._new_node(key)
+            self._root_id = root.id
+            return self._snapshot(), root.id
+
+        # BST insert
+        current_id = self._root_id
+        while True:
+            current = self._nodes[current_id]
+            if key < current.key:
+                if current.left is None:
+                    new_node = self._new_node(key, parent=current_id)
+                    current.left = new_node.id
+                    self._rebalance_path(current_id)
+                    return self._snapshot(), new_node.id
+                current_id = current.left
+            elif key > current.key:
+                if current.right is None:
+                    new_node = self._new_node(key, parent=current_id)
+                    current.right = new_node.id
+                    self._rebalance_path(current_id)
+                    return self._snapshot(), new_node.id
+                current_id = current.right
+            else:
+                # Duplicate key
+                return self._snapshot(), current_id
+
+    def delete_and_snapshot(self, key: int) -> Tuple[AVLState, str]:
+        """
+        Delete a key and return (snapshot, case_str).
+        case_str in {"leaf", "one_child", "two_children", "not_found"}
+        """
+        self.last_rotation = None
+
+        if self._root_id is None:
+            return self._snapshot(), "not_found"
+
+        # Find the node to delete
+        node_id = self._root_id
+        while node_id is not None:
+            node = self._nodes[node_id]
+            if key == node.key:
+                break
+            elif key < node.key:
+                node_id = node.left
+            else:
+                node_id = node.right
+
+        if node_id is None:
+            return self._snapshot(), "not_found"
+
+        node = self._nodes[node_id]
+        parent_id = node.parent
+
+        # Case 1: Leaf node
+        if node.left is None and node.right is None:
+            if parent_id is None:
+                self._root_id = None
+            else:
+                parent = self._nodes[parent_id]
+                if parent.left == node_id:
+                    parent.left = None
+                else:
+                    parent.right = None
+            del self._nodes[node_id]
+            self._rebalance_path(parent_id)
+            return self._snapshot(), "leaf"
+
+        # Case 2: One child
+        if node.left is None or node.right is None:
+            child_id = node.left if node.left is not None else node.right
+            child = self._nodes[child_id]
+            child.parent = parent_id
+
+            if parent_id is None:
+                self._root_id = child_id
+            else:
+                parent = self._nodes[parent_id]
+                if parent.left == node_id:
+                    parent.left = child_id
+                else:
+                    parent.right = child_id
+
+            del self._nodes[node_id]
+            self._rebalance_path(parent_id)
+            return self._snapshot(), "one_child"
+
+        # Case 3: Two children - find inorder successor
+        successor_id = node.right
+        while self._nodes[successor_id].left is not None:
+            successor_id = self._nodes[successor_id].left
+
+        successor = self._nodes[successor_id]
+        successor_parent_id = successor.parent
+
+        # Copy successor's key to node being deleted
+        node.key = successor.key
+
+        # Delete successor (has at most one child - right child)
+        if successor_parent_id == node_id:
+            # Successor is immediate right child
+            node.right = successor.right
+            if successor.right is not None:
+                self._nodes[successor.right].parent = node_id
+            rebalance_start = node_id
+        else:
+            # Successor is deeper
+            parent = self._nodes[successor_parent_id]
+            parent.left = successor.right
+            if successor.right is not None:
+                self._nodes[successor.right].parent = successor_parent_id
+            rebalance_start = successor_parent_id
+
+        del self._nodes[successor_id]
+        self._rebalance_path(rebalance_start)
+        return self._snapshot(), "two_children"
+
+    def get_insertion_path(self, key: int) -> List[int]:
+        """Get the path from root to where a key would be inserted (without inserting)."""
+        if self._root_id is None:
+            return []
+        path = []
+        current_id = self._root_id
+        while current_id is not None:
+            path.append(current_id)
+            current = self._nodes[current_id]
+            if key < current.key:
+                if current.left is None:
+                    break
+                current_id = current.left
+            elif key > current.key:
+                if current.right is None:
+                    break
+                current_id = current.right
+            else:
+                break  # Key already exists
+        return path
+
+    def search_path(self, key: int) -> List[int]:
+        """Get the path from root to a key (or where it would be)."""
+        if self._root_id is None:
+            return []
+        path = []
+        current_id = self._root_id
+        while current_id is not None:
+            path.append(current_id)
+            current = self._nodes[current_id]
+            if key == current.key:
+                break
+            elif key < current.key:
+                current_id = current.left
+            else:
+                current_id = current.right
+        return path
+
+    def tree_height(self) -> int:
+        """Return the height of the tree (0 for empty tree)."""
+        if self._root_id is None:
+            return 0
+        return self._nodes[self._root_id].height
+
+    def _snapshot(self) -> AVLState:
+        nodes_copy = {}
+        for nid, node in self._nodes.items():
+            nodes_copy[nid] = AVLNodeData(
+                id=node.id,
+                key=node.key,
+                left=node.left,
+                right=node.right,
+                parent=node.parent,
+                height=node.height,
+                balance=node.balance,
+            )
+        return AVLState(nodes=nodes_copy, root_id=self._root_id)
+
+
+# =============================================================================
+# AVL Visualization Functions
+# =============================================================================
+
+def create_avl_node_mobject(key: int, balance: int, position) -> VGroup:
+    """
+    Create an AVL node with balance factor label.
+    Structure: VGroup(circle, key_text, bf_text) where circle is at index [0]
+    """
+    # Create circle directly (not extracting from another VGroup)
+    circle = Circle(radius=0.4, color=BLUE, fill_opacity=0.3, fill_color=BLUE, stroke_width=2)
+    key_text = Text(str(key), font_size=24, color=WHITE, disable_ligatures=True)
+    bf_text = Text(f"bf={balance}", font_size=14, color=YELLOW, disable_ligatures=True)
+    
+    # Position elements relative to circle center
+    key_text.move_to(circle.get_center())
+    bf_text.next_to(circle, DOWN, buff=0.08)
+    
+    # Create node group and move to final position
+    node = VGroup(circle, key_text, bf_text)
+    node.move_to(position)
+    node.set_z_index(10)
+    return node
+
+
+def build_avl_graph_from_state(
+    state: AVLState,
+    base_spacing: float = 2.0,
+    level_spacing: float = 1.2,
+    root_y: float = 2.5,
+) -> Tuple[VGroup, Dict[int, VGroup], Dict[Tuple[int, int], Line]]:
+    """
+    Build a visual graph from an AVLState using Graph layout for positioning.
+    
+    Returns:
+        (graph_group, nodes_dict, edges_dict)
+        - graph_group: VGroup containing all nodes and edges
+        - nodes_dict: {node_id: VGroup(circle, key_text, bf_text)}
+        - edges_dict: {(parent_id, child_id): Line}
+    """
+    if state.root_id is None or not state.nodes:
+        return VGroup(), {}, {}
+
+    # Build edge list for Graph layout
+    edge_list = []
+    for nid, node in state.nodes.items():
+        if node.left is not None:
+            edge_list.append((nid, node.left))
+        if node.right is not None:
+            edge_list.append((nid, node.right))
+
+    vertex_list = list(state.nodes.keys())
+
+    # Use Manim's Graph for layout computation
+    temp_graph = Graph(
+        vertex_list,
+        edge_list,
+        layout="tree",
+        root_vertex=state.root_id,
+        layout_scale=base_spacing,
+    )
+
+    # Extract positions and adjust for level spacing
+    positions: Dict[int, np.ndarray] = {}
+    for nid in vertex_list:
+        pos = temp_graph.vertices[nid].get_center()
+        positions[nid] = np.array([pos[0], pos[1] * level_spacing / 2 + root_y, 0])
+
+    # Create node mobjects
+    nodes_dict: Dict[int, VGroup] = {}
+    for nid, node in state.nodes.items():
+        nodes_dict[nid] = create_avl_node_mobject(node.key, node.balance, positions[nid])
+
+    # Create edge mobjects
+    edges_dict: Dict[Tuple[int, int], Line] = {}
+    for parent_id, child_id in edge_list:
+        parent_node = nodes_dict[parent_id]
+        child_node = nodes_dict[child_id]
+        edge = Line(ORIGIN, ORIGIN, color=WHITE, stroke_width=2)
+        edge.set_z_index(5)
+        _connect_edge_to_circular_nodes(edge, parent_node, child_node)
+        edges_dict[(parent_id, child_id)] = edge
+
+    # Combine into group
+    graph_group = VGroup(*edges_dict.values(), *nodes_dict.values())
+    return graph_group, nodes_dict, edges_dict
+
+
+def animate_avl_transition(
+    scene,
+    old_state: AVLState,
+    new_state: AVLState,
+    prev_nodes: Dict[int, VGroup],
+    prev_edges: Dict[Tuple[int, int], Line],
+    base_spacing: float = 2.0,
+    level_spacing: float = 1.2,
+    root_y: float = 2.5,
+    run_time: float = 0.6,
+) -> Tuple[Dict[int, VGroup], Dict[Tuple[int, int], Line]]:
+    """
+    Animate transition between two AVL states using diff-based approach.
+    
+    Returns:
+        (new_nodes_dict, new_edges_dict)
+    """
+    diff = diff_avl_states(old_state, new_state)
+
+    # Build target layout for new state
+    _, target_nodes, target_edges = build_avl_graph_from_state(
+        new_state, base_spacing, level_spacing, root_y
+    )
+
+    new_nodes_dict: Dict[int, VGroup] = {}
+    new_edges_dict: Dict[Tuple[int, int], Line] = {}
+    node_anims = []
+    edge_anims = []
+
+    # Reset colors for all existing nodes (circle is at index [0])
+    for nid in prev_nodes:
+        prev_nodes[nid][0].set_fill(BLUE, opacity=0.8)
+        prev_nodes[nid][0].set_stroke(WHITE, width=2)
+
+    # Handle unchanged nodes - move if position changed
+    for nid in diff.unchanged_nodes:
+        old_node = prev_nodes[nid]
+        target_pos = target_nodes[nid].get_center()
+        old_pos = old_node.get_center()
+
+        if not np.allclose(old_pos, target_pos, atol=0.01):
+            node_anims.append(old_node.animate.move_to(target_pos))
+
+        new_nodes_dict[nid] = old_node
+
+    # Handle modified nodes - Transform to update bf labels
+    for nid in diff.modified_nodes:
+        old_node = prev_nodes[nid]
+        target_node = target_nodes[nid]
+
+        node_anims.append(Transform(old_node, target_node))
+        new_nodes_dict[nid] = old_node
+
+    # Handle new nodes - FadeIn
+    for nid in diff.new_nodes:
+        target_node = target_nodes[nid].copy()
+        new_nodes_dict[nid] = target_node
+        node_anims.append(FadeIn(target_node))
+
+    # Handle removed nodes - FadeOut
+    for nid in diff.removed_nodes:
+        old_node = prev_nodes[nid]
+        node_anims.append(FadeOut(old_node))
+
+    # Handle edges
+    old_edge_keys = set(prev_edges.keys())
+    new_edge_keys = set(target_edges.keys())
+
+    kept_edges = old_edge_keys & new_edge_keys
+    added_edges = new_edge_keys - old_edge_keys
+    removed_edges = old_edge_keys - new_edge_keys
+
+    # Kept edges - reattach updater
+    for ek in kept_edges:
+        old_edge = prev_edges[ek]
+        parent_id, child_id = ek
+        parent_node = new_nodes_dict[parent_id]
+        child_node = new_nodes_dict[child_id]
+        new_edges_dict[ek] = old_edge
+        _connect_edge_to_circular_nodes(old_edge, parent_node, child_node)
+
+    # New edges - create with updater and animate in
+    for ek in added_edges:
+        parent_id, child_id = ek
+        parent_node = new_nodes_dict[parent_id]
+        child_node = new_nodes_dict[child_id]
+        new_edge = Line(ORIGIN, ORIGIN, color=WHITE, stroke_width=2)
+        new_edge.set_z_index(5)
+        _connect_edge_to_circular_nodes(new_edge, parent_node, child_node)
+        new_edges_dict[ek] = new_edge
+        scene.add(new_edge)
+        edge_anims.append(Create(new_edge))
+
+    # Removed edges - clear updaters and fade out
+    for ek in removed_edges:
+        old_edge = prev_edges[ek]
+        old_edge.clear_updaters()
+        edge_anims.append(FadeOut(old_edge))
+
+    # Play all animations together
+    if node_anims or edge_anims:
+        scene.play(
+            AnimationGroup(*node_anims, *edge_anims, lag_ratio=0.0),
+            run_time=run_time,
+        )
+
+    return new_nodes_dict, new_edges_dict
